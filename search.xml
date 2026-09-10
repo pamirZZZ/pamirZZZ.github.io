@@ -1,9 +1,31 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
-    <title>《赛道狂飙：国家永恒》安装指南</title>
+    <title>《赛道狂飙：国家永恒》安装使用指南</title>
     <url>/2026/09/09/tmnfguide/</url>
-    <content><![CDATA[]]></content>
+    <content><![CDATA[<pre><code>本指南以官方下载版为基准，steam商店版本存在材质和版本更新问题所以不推荐。
+</code></pre>
+<h1 id="安装《赛道狂飙：国家永恒》"><a href="#安装《赛道狂飙：国家永恒》" class="headerlink" title="安装《赛道狂飙：国家永恒》"></a>安装《赛道狂飙：国家永恒》</h1><p>首先点击<a href="http://files.trackmaniaforever.com/tmnationsforever_setup.exe">官方下载链接</a>，这个链接会让浏览器自动开始从Nadeo官方服务器下载<strong>tmnationsforever_setup.exe</strong>（506MB）。</p>
+<p>下载完成后运行安装程序，等待文件解压完成。</p>
+<p><img src="/./tmnfguide/extract.png"></p>
+<p>选择安装语言，点击确定。</p>
+<p><img src="/./tmnfguide/language.png"></p>
+<p>点击下一步，同意使用条款。</p>
+<p><img src="/./tmnfguide/eula.png"></p>
+<p>选择安装文件夹。</p>
+<p><img src="/./tmnfguide/location.png"></p>
+<p>选择快捷方式创建位置。</p>
+<p><img src="/./tmnfguide/shortcut.png"></p>
+<p>选择额外任务，建议全部勾选。</p>
+<p><img src="/./tmnfguide/extra.png"></p>
+<p>确认安装设定后，点击安装。</p>
+<p><img src="/./tmnfguide/confirm.png"></p>
+<p><img src="/./tmnfguide/installing.png"></p>
+<p>完成安装。</p>
+<p><img src="/tmnfguide/finish.png"></p>
+<p>安装完成后会在桌面看到名为<strong>TmNationsForever</strong>的快捷方式。</p>
+<p><img src="/tmnfguide/shortcut_ico.png"></p>
+]]></content>
       <categories>
         <category>指南</category>
       </categories>
