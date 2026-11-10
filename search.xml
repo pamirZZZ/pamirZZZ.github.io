@@ -1,6 +1,61 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
+    <title>Visual Studio 2022 openGL环境配置</title>
+    <url>/2026/11/10/msvc-opengl-env-build/</url>
+    <content><![CDATA[<h1 id="GLUT安装"><a href="#GLUT安装" class="headerlink" title="GLUT安装"></a>GLUT安装</h1><p><a href="http://www.opengl.org/resources/libraries/glut/glutdlls37beta.zip">GLUT下载地址</a></p>
+<ul>
+<li>定位到VS2022根目录下的 <strong>include</strong> 文件夹</li>
+</ul>
+<p>位置一般为：<strong>xxx\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include</strong></p>
+<p>p.s. 具体的版本号会有所不同</p>
+<p>在include文件夹创建一个名为 <strong>gl</strong> 的文件夹，放入下载压缩包中的 <strong>glut.h</strong> 文件</p>
+<ul>
+<li>定位到VS2022根目录下的 <strong>lib</strong> 文件夹</li>
+</ul>
+<p>即：<strong>xxx\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\lib</strong></p>
+<p>打开 <strong>x86</strong> 文件夹，放入 <strong>glut.lib</strong> 和 <strong>glut32.lib</strong> </p>
+<ul>
+<li>打开系统文件夹</li>
+</ul>
+<p>32位系统对应 <strong>C:\Windows\System32</strong></p>
+<p>64位系统对应 <strong>C:\Windows\SysWOW64</strong></p>
+<p>放入 <strong>glut.dll</strong> 和 <strong>glut32.dll</strong></p>
+<p>在VS2022中新建控制台应用</p>
+<p>打开 <strong>项目菜单 -&gt; 管理NuGet程序包</strong></p>
+<p>搜索并安装 <strong>nupengl</strong> ，一共有两个文件，安装其中一个另外一个会默认安装</p>
+<p><img src="/2026/11/10/msvc-opengl-env-build/nupengl.png"></p>
+<p>注意每次新建一个需要用到glut的项目都要安装一次</p>
+<p>至此已完成glut的安装</p>
+<h1 id="GLFW安装"><a href="#GLFW安装" class="headerlink" title="GLFW安装"></a>GLFW安装</h1><p><a href="https://www.glfw.org/download.html">GLFW下载地址</a></p>
+<p>选择 <strong>64-bit Windows binaries</strong> （根据VS版本选择）</p>
+<p>打开下载的文件夹</p>
+<p><strong>glfw-3.3.6.bin.WIN64\include\GLFW</strong></p>
+<p>将 <strong>glfw3.h</strong> 文件放到 <strong>xxx\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.31.31103\include\GLFW</strong> 文件夹中（新建GLFW文件夹）</p>
+<p>打开lib-vc2022文件夹 <strong>glfw-3.3.6.bin.WIN64\lib-vc2022</strong></p>
+<p>将 <strong>glfw3.lib、glfw3_mt.lib、glfw3dll.lib</strong> 放到 <strong>xxx\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.31.31103\lib\x86</strong></p>
+<p>将 <strong>glfw3.dll</strong> 放到 <strong>C:\Windows\SysWOW64</strong>（根据系统位数决定）</p>
+<p>至此已完成GLFW的安装</p>
+<h1 id="GLAD安装"><a href="#GLAD安装" class="headerlink" title="GLAD安装"></a>GLAD安装</h1><p><a href="http://glad.dav1d.de/">GLAD下载地址</a></p>
+<p>作如下的选项，点击Generate</p>
+<p><img src="/2026/11/10/msvc-opengl-env-build/glad.png"></p>
+<p>选择生成的zip文件下载</p>
+<p><img src="/2026/11/10/msvc-opengl-env-build/glad_file.png"></p>
+<p>将 <strong>glad\include</strong> 中的两个文件夹复制到 <strong>xxx\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.31.31103\include</strong></p>
+<p>glad\src的glad.c文件不需要做额外的放置</p>
+<p>如果项目中需要用到GLAD，则把glad.c复制到源文件目录</p>
+<p>至此已完成GLAD的安装</p>
+]]></content>
+      <categories>
+        <category>指南</category>
+      </categories>
+      <tags>
+        <tag>MSVC</tag>
+        <tag>openGL</tag>
+        <tag>环境配置</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>《赛道狂飙：国家永恒》安装使用指南</title>
     <url>/2026/09/09/tmnfguide/</url>
     <content><![CDATA[<pre><code>本指南以官方下载版为基准，steam商店版本存在材质和版本更新问题所以不推荐。
@@ -25,6 +80,12 @@
 <p><img src="/2026/09/09/tmnfguide/finish.png"></p>
 <p>安装完成后会在桌面看到名为<strong>TmNationsForever</strong>的快捷方式。</p>
 <p><img src="/2026/09/09/tmnfguide/shortcut_ico.png"></p>
+<h1 id="游戏的设置与使用"><a href="#游戏的设置与使用" class="headerlink" title="游戏的设置与使用"></a>游戏的设置与使用</h1><p>在桌面生成的快捷方式实际对应游戏的启动器。</p>
+<p><img src="/2026/09/09/tmnfguide/root_folder.png"></p>
+<p>运行启动器，选择 <strong>配置</strong> ➡️ <strong>高级</strong> 即可进入详细设置页面。</p>
+<p>也可以直接把本体的执行文件拉出来做一个快捷方式。</p>
+<p>如果遇到明明开了最大特效和纹理过滤，但是车辆的纹理仍然模糊的情况，应该是显卡没有被游戏识别导致的。</p>
+<p>此时请使用dgVoodoo或DXVK等工具进行设置。</p>
 ]]></content>
       <categories>
         <category>指南</category>
