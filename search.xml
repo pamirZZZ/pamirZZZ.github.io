@@ -94,4 +94,180 @@
         <tag>Trackmania</tag>
       </tags>
   </entry>
+  <entry>
+    <title>极品飞车：超热力追缉（2010）在 Intel Arc 核显下的崩溃问题排查与修复</title>
+    <url>/2026/11/14/nfs14-repair-with-dxvk/</url>
+    <content><![CDATA[<h1 id="问题现象与日志分析"><a href="#问题现象与日志分析" class="headerlink" title="问题现象与日志分析"></a>问题现象与日志分析</h1><p>11 月 13 日下午，我通过 Steam 启动《Need for Speed: Hot Pursuit》（2010 年原版，AppID 47870，非 Remastered 版本）。进入游戏数分钟后，准备开始比赛时，画面停止响应，随后游戏直接退出到桌面。过程中没有错误弹窗，也没有出现黑屏或“程序已停止工作”等提示。</p>
+<p>首先检查 Windows 事件日志。Application 日志中与游戏相关的记录只有一条：</p>
+<figure class="highlight text"><table><tr><td class="code"><pre><span class="line">日志名称:   Application</span><br><span class="line">来源:       Windows Error Reporting</span><br><span class="line">事件 ID:    1001</span><br><span class="line">级别:       信息</span><br><span class="line">时间:       2026/11/13 16:29:42</span><br><span class="line"></span><br><span class="line">Fault bucket 2017300548002759896, type 5</span><br><span class="line">Event Name: RADAR_PRE_LEAK_WOW64</span><br><span class="line">Problem signature:</span><br><span class="line">  P1: NFS11.exe</span><br><span class="line">  P2: 1.0.5.0</span><br><span class="line">  P3: 10.0.26300.2.0.0</span><br></pre></td></tr></table></figure>
+
+<p>这条记录需要结合其他日志中缺失的信息来判断：</p>
+<ul>
+<li><strong>没有 Application Error（事件 1000）或 Application Hang（事件 1002）</strong>：系统没有记录常见的应用程序崩溃或无响应事件，也没有提供故障模块和异常代码。</li>
+<li><strong>System 日志中没有 Display 4101（TDR）或 LiveKernelEvent</strong>：没有证据表明显卡驱动发生超时复位；同时也没有 BugCheck 1001 蓝屏记录。</li>
+<li><strong>出现 RADAR_PRE_LEAK_WOW64</strong>：这是 Windows 资源耗尽检测器（Resource Exhaustion Detector）针对一个 32 位 WOW64 进程生成的资源耗尽预警。</li>
+</ul>
+<p>结合文件时间和事件记录，可以整理出以下时间线：</p>
+<table>
+<thead>
+<tr>
+<th>时间（11 月 13 日）</th>
+<th>事件</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>12:22</td>
+<td>Steam 安装完成，游戏本体约 8.4 GB</td>
+</tr>
+<tr>
+<td>16:28</td>
+<td>启动游戏，写入 GAMELOGIC 等资源目录</td>
+</tr>
+<tr>
+<td>16:29:38</td>
+<td>资源耗尽检测器启动</td>
+</tr>
+<tr>
+<td>16:29:42</td>
+<td>WER 记录 <code>RADAR_PRE_LEAK_WOW64</code>，对应进程为 <code>NFS11.exe</code></td>
+</tr>
+<tr>
+<td>16:40:27</td>
+<td>游戏目录中出现 DXVK 的 <code>d3d9.dll</code></td>
+</tr>
+<tr>
+<td>23:34</td>
+<td>再次启动游戏，未复现崩溃；此后日志中也没有新的 NFS11 相关记录</td>
+</tr>
+</tbody></table>
+<p>当时的硬件和系统环境如下：</p>
+<table>
+<thead>
+<tr>
+<th>部件</th>
+<th>型号 &#x2F; 参数</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>机型</td>
+<td>Lenovo 21KUA004CD</td>
+</tr>
+<tr>
+<td>CPU</td>
+<td>Intel Core Ultra 5 125H，14 核 18 线程，18 MB L3</td>
+</tr>
+<tr>
+<td>核显</td>
+<td>Intel Arc Graphics（驱动报告为 Arc Pro Graphics），驱动版本 32.0.101.8805</td>
+</tr>
+<tr>
+<td>内存</td>
+<td>32 GB DDR5-5600（2×16 GB）</td>
+</tr>
+<tr>
+<td>系统</td>
+<td>Windows 11，10.0.26300</td>
+</tr>
+<tr>
+<td>屏幕</td>
+<td>2560×1600 @ 90 Hz</td>
+</tr>
+</tbody></table>
+<p>游戏运行时使用 2560×1600 全屏模式。较高的渲染分辨率可能增加图形资源占用，是后续分析中的一个重要条件。</p>
+<h1 id="崩溃原因分析"><a href="#崩溃原因分析" class="headerlink" title="崩溃原因分析"></a>崩溃原因分析</h1><h2 id="1-NFS11-exe-是未启用-LAA-的-32-位程序"><a href="#1-NFS11-exe-是未启用-LAA-的-32-位程序" class="headerlink" title="1. NFS11.exe 是未启用 LAA 的 32 位程序"></a>1. NFS11.exe 是未启用 LAA 的 32 位程序</h2><p>首先检查游戏主程序的 PE 头。结果可以确认程序架构以及是否启用了 Large Address Aware：</p>
+<figure class="highlight powershell"><table><tr><td class="code"><pre><span class="line"><span class="variable">$p</span> = <span class="string">&#x27;D:\Program Files (x86)\Steam\steamapps\common\Need for Speed Hot Pursuit\NFS11.exe&#x27;</span></span><br><span class="line"><span class="variable">$fs</span> = [<span class="type">System.IO.File</span>]::OpenRead(<span class="variable">$p</span>)</span><br><span class="line"><span class="variable">$br</span> = <span class="built_in">New-Object</span> System.IO.BinaryReader(<span class="variable">$fs</span>)</span><br><span class="line"></span><br><span class="line"><span class="variable">$fs</span>.Position = <span class="number">0</span>x3C</span><br><span class="line"><span class="variable">$peOff</span> = <span class="variable">$br</span>.ReadInt32()</span><br><span class="line"></span><br><span class="line"><span class="variable">$fs</span>.Position = <span class="variable">$peOff</span> + <span class="number">4</span>                     <span class="comment"># PE 签名之后</span></span><br><span class="line"><span class="variable">$machine</span> = <span class="variable">$br</span>.ReadUInt16()                   <span class="comment"># 014C = x86</span></span><br><span class="line"></span><br><span class="line"><span class="variable">$fs</span>.Position = <span class="variable">$peOff</span> + <span class="number">4</span> + <span class="number">18</span>                <span class="comment"># Characteristics 字段</span></span><br><span class="line"><span class="variable">$characteristics</span> = <span class="variable">$br</span>.ReadUInt16()</span><br><span class="line"></span><br><span class="line"><span class="string">&#x27;Machine: 0x&#123;0:X4&#125;&#x27;</span> <span class="operator">-f</span> <span class="variable">$machine</span></span><br><span class="line"><span class="string">&#x27;Characteristics: 0x&#123;0:X4&#125;&#x27;</span> <span class="operator">-f</span> <span class="variable">$characteristics</span></span><br><span class="line"><span class="string">&#x27;LAA: &#x27;</span> + [<span class="built_in">bool</span>](<span class="variable">$characteristics</span> <span class="operator">-band</span> <span class="number">0</span>x20)</span><br><span class="line"></span><br><span class="line"><span class="variable">$br</span>.Close(); <span class="variable">$fs</span>.Close()</span><br></pre></td></tr></table></figure>
+
+<p>输出结果：</p>
+<figure class="highlight text"><table><tr><td class="code"><pre><span class="line">Machine: 0x014C</span><br><span class="line">Characteristics: 0x0103</span><br><span class="line">LAA: False</span><br></pre></td></tr></table></figure>
+
+<p><code>0x014C</code> 表示该程序是 x86 32 位应用程序。<code>Characteristics</code> 字段中的 <code>0x0020</code>（Large Address Aware）标志未设置，因此进程没有启用大地址感知。在常规 64 位 Windows 环境下，这类进程的用户态虚拟地址空间上限为 <strong>2 GB</strong>。这个限制与机器安装了多少物理内存无关。</p>
+<h2 id="2-D3D9-资源和驱动开销可能占用进程地址空间"><a href="#2-D3D9-资源和驱动开销可能占用进程地址空间" class="headerlink" title="2. D3D9 资源和驱动开销可能占用进程地址空间"></a>2. D3D9 资源和驱动开销可能占用进程地址空间</h2><p>Intel Arc 核显没有独立显存，图形资源主要使用系统内存。对于通过 D3D9 运行的程序，资源管理和驱动实现可能产生额外的进程内存开销，主要包括：</p>
+<ul>
+<li><strong>Managed Pool 资源</strong>：D3D9 的 managed 纹理和缓冲区由运行时管理。系统内存中的资源副本、更新过程中的暂存数据等，可能增加进程的地址空间占用。</li>
+<li><strong>驱动进程内开销</strong>：着色器编译中间数据、资源上传或回读所需的暂存区，以及命令缓冲等，都可能占用调用进程的虚拟地址空间。</li>
+<li><strong>渲染目标与交换链</strong>：在 2560×1600、32 位色下，单个全尺寸缓冲区约占 15.6 MB。多个后台缓冲区、深度缓冲区以及 MSAA 资源会进一步增加占用，实际数量取决于具体配置和驱动实现。</li>
+<li><strong>游戏自身的流式资源</strong>：游戏使用内存映射等方式按需读取 <code>.BNDL</code> 归档文件。映射区域也会占用进程虚拟地址空间，但不等同于文件大小全部常驻物理内存。</li>
+</ul>
+<p>这款游戏发布于 2010 年，其开发和测试环境与当前机器存在较大差异。当时常见的显示分辨率和显存容量都低于本机配置。当前使用的 2560×1600 分辨率，相比 1280×1024 的像素数量约为 3.1 倍，可能导致渲染目标和相关资源占用增加。在 32 位进程的地址空间受到限制时，这些额外开销值得重点排查。</p>
+<h2 id="3-地址空间分配失败不一定表现为标准崩溃"><a href="#3-地址空间分配失败不一定表现为标准崩溃" class="headerlink" title="3. 地址空间分配失败不一定表现为标准崩溃"></a>3. 地址空间分配失败不一定表现为标准崩溃</h2><p>当进程可用地址空间不足时，<code>VirtualAlloc</code> 或 D3D9 资源创建操作可能返回失败，例如 <code>E_OUTOFMEMORY</code> 或 <code>D3DERR_OUTOFVIDEOMEMORY</code>。如果游戏没有对这些返回值进行充分处理，可能出现渲染线程停滞、画面冻结，最终进程退出等现象。</p>
+<p>这与本次日志情况基本一致：</p>
+<ul>
+<li>没有访问违规记录，因此没有常见的 <code>APPCRASH</code> 和故障模块信息；</li>
+<li>没有 GPU 超时复位记录，因此没有对应的 TDR 4101 事件；</li>
+<li>WER 记录了资源耗尽检测器生成的 <code>RADAR_PRE_LEAK_WOW64</code> 事件。</li>
+</ul>
+<p>需要注意，当前 WER 报告没有生成 dump（<code>These files may be available here: NULL</code>，Report Status 为 268435456）。因此，以上判断是根据事件签名、时间线、硬件环境和 PE 头信息综合推断的，并非通过调用栈直接确认。它能够解释目前观察到的现象，但还不能视为已经由崩溃转储证实的根因。</p>
+<h1 id="可选解决方案"><a href="#可选解决方案" class="headerlink" title="可选解决方案"></a>可选解决方案</h1><p>以下方案按照对问题可能产生的影响和实施成本进行比较：</p>
+<ol>
+<li><strong>降低分辨率、关闭抗锯齿或降低纹理质量</strong>：可以减少部分图形资源占用，但会牺牲画质。适合作为快速验证手段，未必能解决根本限制。</li>
+<li><strong>启用 4 GB &#x2F; LAA</strong>：修改 PE 头中的 Large Address Aware 标志，使程序在 64 位 Windows 下有机会使用更大的用户态地址空间。该方案需要修改游戏可执行文件，Steam 更新或验证游戏文件时可能覆盖修改；此外，也无法保证旧程序中的所有地址处理逻辑都兼容更大的地址空间。</li>
+<li><strong>更换或回滚 Intel 显卡驱动</strong>：不同驱动版本的 D3D9 实现和资源管理方式可能存在差异，但效果不确定，而且可能影响其他应用和游戏。</li>
+<li><strong>增加页面文件或关闭后台程序</strong>：关闭后台程序可以减少系统整体资源压力，但增加页面文件不会提高 32 位进程的虚拟地址空间上限。页面文件主要影响系统提交限制，不能直接解决本次怀疑的 2 GB 地址空间限制。</li>
+<li><strong>启用兼容性模式或禁用全屏优化</strong>：这些设置主要影响程序兼容性、窗口管理和 DWM 呈现行为，不会改变进程的地址空间上限，因此与当前推测的原因关联较小。</li>
+<li><strong>使用 D3D9On12</strong>：通过 D3D12 后端实现 D3D9 接口，有机会绕开部分原生 D3D9 驱动路径。具体效果取决于系统组件和驱动支持情况，排查时也需要额外配置。</li>
+<li><strong>使用 DXVK</strong>：将 D3D9 调用转换为 Vulkan，改变原有图形 API 的执行路径。它可以通过应用目录中的 DLL 部署，容易回滚，并提供独立日志用于诊断。</li>
+</ol>
+<p>本次最终采用第 7 种方案。降低分辨率虽然可以用于验证资源占用是否相关，但不希望长期降低画质；修改可执行文件则会引入额外的兼容性和维护风险。DXVK 的部署和回滚成本相对较低，也更容易观察运行状态。</p>
+<h1 id="选择-DXVK-的原因"><a href="#选择-DXVK-的原因" class="headerlink" title="选择 DXVK 的原因"></a>选择 DXVK 的原因</h1><p>选择 DXVK 主要基于以下几点：</p>
+<ul>
+<li><strong>部署简单且可逆</strong>：将对应架构的 <code>d3d9.dll</code> 放入游戏目录即可，不需要修改游戏 EXE 或系统目录。删除该文件即可恢复原有加载方式。</li>
+<li><strong>提供 x86 构建</strong>：官方发布包包含 x32 版本。日志中的 <code>Build: x86</code> 表明加载的是 32 位构建，与 <code>NFS11.exe</code> 的架构一致。</li>
+<li><strong>日志信息较完整</strong>：DXVK 会在游戏目录生成 <code>NFS11_d3d9.log</code>，记录设备信息、驱动版本、内存堆、交换链和着色器缓存等内容，便于确认初始化过程和排查问题。</li>
+<li><strong>已有较多实际使用案例</strong>：DXVK 常用于在较新的系统和硬件上运行旧版 D3D9 游戏。</li>
+<li><strong>可能改善着色器编译造成的卡顿</strong>：DXVK 支持磁盘着色器缓存。缓存命中后，可以减少重复编译。本机缓存记录为 640 个 shader，大小约 3.0 MB。</li>
+</ul>
+<p>安装过程如下：</p>
+<figure class="highlight powershell"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 1. 下载 DXVK 3.1.1 release 并解压</span></span><br><span class="line"><span class="comment"># 2. 将 x32 目录下的 d3d9.dll 复制到游戏目录，与 NFS11.exe 放在同一级目录</span></span><br><span class="line"><span class="variable">$game</span> = <span class="string">&#x27;D:\Program Files (x86)\Steam\steamapps\common\Need for Speed Hot Pursuit&#x27;</span></span><br><span class="line"><span class="built_in">Copy-Item</span> <span class="string">&#x27;.\dxvk-3.1.1\x32\d3d9.dll&#x27;</span> <span class="literal">-Destination</span> <span class="variable">$game</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># 3. 启动游戏，检查日志是否生成</span></span><br><span class="line"><span class="built_in">Get-Content</span> <span class="string">&quot;<span class="variable">$game</span>\NFS11_d3d9.log&quot;</span> <span class="literal">-TotalCount</span> <span class="number">5</span></span><br></pre></td></tr></table></figure>
+
+<p>如果需要调整参数，可以在游戏目录创建 <code>dxvk.conf</code>。例如：</p>
+<figure class="highlight ini"><table><tr><td class="code"><pre><span class="line"><span class="comment"># DXVK 编译线程数；可根据 CPU 核心数和实际负载调整</span></span><br><span class="line"><span class="attr">dxvk.numCompilerThreads</span> = <span class="number">8</span></span><br><span class="line"></span><br><span class="line"><span class="comment"># D3D9 预渲染帧数；较低的值通常有助于降低输入延迟</span></span><br><span class="line"><span class="attr">d3d9.maxFrameLatency</span> = <span class="number">1</span></span><br></pre></td></tr></table></figure>
+
+<p>启动游戏后，可以检查日志中的设备信息，确认 DXVK 是否正常加载，以及是否识别到预期的 GPU：</p>
+<figure class="highlight text"><table><tr><td class="code"><pre><span class="line">info:  Game: NFS11.exe</span><br><span class="line">info:  DXVK: v3.1.1</span><br><span class="line">info:  Build: x86 gcc 16.2.0</span><br><span class="line">info:  Found device: Intel(R) Arc(TM) Pro Graphics (Intel Corporation 101.8805.0)</span><br></pre></td></tr></table></figure>
+
+<p>本机在 11 月 13 日 16:40 放入 <code>d3d9.dll</code>。当晚 23:34 再次启动游戏后，未再复现此前的崩溃；此后系统日志中也没有出现新的 NFS11 相关错误或资源耗尽记录。</p>
+<h1 id="DXVK-的工作原理"><a href="#DXVK-的工作原理" class="headerlink" title="DXVK 的工作原理"></a>DXVK 的工作原理</h1><h2 id="1-通过应用目录中的-d3d9-dll-接管加载"><a href="#1-通过应用目录中的-d3d9-dll-接管加载" class="headerlink" title="1. 通过应用目录中的 d3d9.dll 接管加载"></a>1. 通过应用目录中的 d3d9.dll 接管加载</h2><p><code>NFS11.exe</code> 启动时需要加载 <code>d3d9.dll</code>。Windows 的 DLL 搜索顺序会优先检查应用程序目录；由于 <code>d3d9.dll</code> 不在系统 KnownDLLs 列表中，放在游戏目录下的同名 DLL 可以优先于系统版本被加载。</p>
+<p>我检查了注册表路径 <code>HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\KnownDLLs</code>，其中没有与 D3D 相关的条目。</p>
+<p>DXVK 的 DLL 在文件属性中使用了 <code>10.0.17763.1</code> 等版本信息，产品名称显示为 <code>Direct3D 9 Runtime</code>。这些元数据并不代表它是微软提供的系统组件；实际加载的是 DXVK 实现的 D3D9 到 Vulkan 翻译层，文件大小约为 7.8 MB。</p>
+<h2 id="2-将-D3D9-调用转换为-Vulkan"><a href="#2-将-D3D9-调用转换为-Vulkan" class="headerlink" title="2. 将 D3D9 调用转换为 Vulkan"></a>2. 将 D3D9 调用转换为 Vulkan</h2><p>游戏调用 <code>CreateDevice</code>、<code>CreateTexture</code>、<code>DrawPrimitive</code> 等 D3D9 接口时，DXVK 会将相关操作转换为 Vulkan 调用，再交由 Intel Vulkan 驱动执行。设备初始化日志如下：</p>
+<figure class="highlight text"><table><tr><td class="code"><pre><span class="line">info:  Creating device:</span><br><span class="line">info:  Intel(R) Arc(TM) Pro Graphics:</span><br><span class="line">info:    Driver   : Intel Corporation 101.8805.0</span><br><span class="line">info:  Queues:</span><br><span class="line">info:    Graphics : (0, 0)</span><br><span class="line">info:    Transfer : (2, 0)</span><br><span class="line">info:  Memory:</span><br><span class="line">info:    Heap 0: 17.96 GiB (DEVICE_LOCAL)</span><br><span class="line">info:    Budget: 17.21 GiB</span><br></pre></td></tr></table></figure>
+
+<p><code>Memory</code> 部分显示了 Vulkan 驱动报告的设备内存堆信息。对于核显，这类 device-local 内存通常对应系统内存中可供 GPU 访问的区域，并不意味着机器上存在同等容量的独立显存。</p>
+<p>DXVK 通过 Vulkan 的资源和内存管理机制处理图形资源。与原生 D3D9 路径相比，资源分配、缓存和暂存数据的管理方式会发生变化，因而可能降低原先由 D3D9 运行时和驱动路径产生的部分进程内存开销。不过，Vulkan 资源并非完全不占用进程地址空间；DXVK 自身仍然需要维护对象、句柄、描述符及其他管理数据。</p>
+<p>因此，更准确的说法是：DXVK 改变了图形资源的管理路径，可能缓解原生 D3D9 路径下的地址空间压力，而不是简单地将所有纹理副本从 2 GB 地址空间中完全移除。</p>
+<h2 id="3-着色器编译与磁盘缓存"><a href="#3-着色器编译与磁盘缓存" class="headerlink" title="3. 着色器编译与磁盘缓存"></a>3. 着色器编译与磁盘缓存</h2><p>D3D9 游戏运行时会创建和使用大量着色器。DXVK 会将相关着色器代码转换为 Vulkan 使用的形式，并将编译结果写入磁盘缓存。</p>
+<p>本机日志记录如下：</p>
+<figure class="highlight text"><table><tr><td class="code"><pre><span class="line">info:  Found cache file: C:\Users\Hf200\AppData\Local\dxvk\9a4abea9589bf310.dxvk.bin</span><br><span class="line">info:  Cache: 640 shaders (3.0 MB)</span><br><span class="line">info:  DXVK: Using 8 compiler threads</span><br></pre></td></tr></table></figure>
+
+<p>缓存可以避免后续启动时重复执行部分着色器编译工作，从而减少相关卡顿。首次运行时仍可能发生编译开销；缓存效果也取决于游戏内容、驱动和 DXVK 版本。</p>
+<h2 id="4-接管呈现和交换链"><a href="#4-接管呈现和交换链" class="headerlink" title="4. 接管呈现和交换链"></a>4. 接管呈现和交换链</h2><p>DXVK 也负责处理 D3D9 的呈现流程。日志中的交换链信息如下：</p>
+<figure class="highlight text"><table><tr><td class="code"><pre><span class="line">info:  D3D9DeviceEx::ResetSwapChain:</span><br><span class="line">info:      - Width:              2560</span><br><span class="line">info:      - Height:             1600</span><br><span class="line">info:      - Format:             D3D9Format::A8R8G8B8</span><br><span class="line">info:  Presenter: Actual swapchain properties:</span><br><span class="line">info:    Present mode: VK_PRESENT_MODE_FIFO_KHR (dynamic: no)</span><br><span class="line">info:    Buffer size:  2560x1600</span><br><span class="line">info:    Image count:  3</span><br></pre></td></tr></table></figure>
+
+<p>从日志可以确认，当前交换链使用 2560×1600 分辨率，图像数量为 3，并采用 <code>VK_PRESENT_MODE_FIFO_KHR</code> 呈现模式。全屏切换、垂直同步和帧队列等行为由 DXVK 的呈现层处理，而不是直接沿用原生 D3D9 呈现路径。</p>
+<p>日志还提示，DXVK 自带限帧器；如果需要更稳定地控制帧时间，可以考虑使用外部限帧工具。这一点与本次崩溃原因没有直接关系。</p>
+<h2 id="5-GPU-标识兼容处理"><a href="#5-GPU-标识兼容处理" class="headerlink" title="5. GPU 标识兼容处理"></a>5. GPU 标识兼容处理</h2><p>日志中还有以下信息：</p>
+<figure class="highlight text"><table><tr><td class="code"><pre><span class="line">info:  D3D9: Hiding actual GPU, reporting:</span><br><span class="line">info:    vendor ID: 0x1002</span><br><span class="line">info:    device ID: 0x73df</span><br><span class="line">info:    device description: AMD Radeon RX 6700 XT</span><br></pre></td></tr></table></figure>
+
+<p>这表明 DXVK 的 D3D9 层没有向游戏报告实际的 Intel GPU 标识，而是返回了另一组 GPU 标识信息。检查 <code>d3d9.dll</code> 中的字符串，可以看到其中包含 <code>Generic Graphics Card</code>、<code>AMD Radeon RX 6700 XT</code> 和 <code>NVIDIA GeForce RTX 3060</code> 等设备名称。</p>
+<p>这种处理可能用于规避部分旧游戏对显卡型号的硬编码判断，或避免游戏将未识别的 GPU 送入不合适的兼容性分支。该游戏的注册表 <code>3D Data</code> 数据库包含多条显卡记录，说明游戏确实存在基于 GPU 信息进行配置或判断的机制。不过，仅凭这段日志还不能确定游戏具体采用了哪条判断逻辑，也不能据此断言这是本次崩溃的直接原因。</p>
+<h2 id="代价与注意事项"><a href="#代价与注意事项" class="headerlink" title="代价与注意事项"></a>代价与注意事项</h2><p>DXVK 并不能保证所有 D3D9 游戏都能无问题运行，使用时需要考虑以下情况：</p>
+<ul>
+<li>首次启动或首次进入新场景时，可能出现着色器编译卡顿；后续运行会在缓存命中时有所改善。</li>
+<li>个别后处理效果或渲染细节可能与原生 D3D9 路径存在差异。</li>
+<li>DXVK 依赖可用的 Vulkan 驱动。如果显卡驱动或 Vulkan 实现本身存在问题，DXVK 也可能受到影响。</li>
+<li>对带有反作弊机制的联机游戏，不应随意替换或注入图形 DLL。DXVK 更适合用于单机旧游戏，使用前应确认游戏及平台规则。</li>
+</ul>
+<h1 id="结论"><a href="#结论" class="headerlink" title="结论"></a>结论</h1><p>本次问题的主要线索是：<code>NFS11.exe</code> 属于未启用 LAA 的 32 位程序，进程用户态地址空间上限为 2 GB；Windows 同时记录了 <code>RADAR_PRE_LEAK_WOW64</code> 资源耗尽预警。结合高分辨率运行环境和 D3D9 资源管理开销，地址空间不足是一个较合理的解释，但由于没有 dump 或调用栈，目前仍属于基于现有证据的推断。</p>
+<p>部署 DXVK 后，游戏在相同机器和分辨率下未再复现崩溃，日志也没有出现新的相关资源耗尽记录。这个结果说明更换 D3D9 到 Vulkan 的执行路径对本机环境有效，但单次前后对比不足以证明原生 D3D9 的某一项具体分配必然导致了崩溃。</p>
+<p>对于这类 32 位老游戏，排查时应优先确认进程架构、LAA 标志和系统事件记录，再结合图形 API、驱动及资源占用情况选择兼容方案。DXVK 的优势在于部署简单、容易回滚，并且提供了较好的运行日志，适合作为这类问题的排查和兼容性解决方案。</p>
+]]></content>
+      <categories>
+        <category>解决方案</category>
+      </categories>
+      <tags>
+        <tag>极品飞车</tag>
+        <tag>DXVK</tag>
+        <tag>DirectX</tag>
+      </tags>
+  </entry>
 </search>
